@@ -1,36 +1,41 @@
 import socket 
+import threading
 
-
-# 192.168.1.106
 HOST ="127.0.0.1"  #loopback
 
-# IP="192.168.10.5"
-
-SEVER_PORT=65432  # laays port nao cung duoc mien la lon hon 5000
+SEVER_PORT=65432  # lay port nao cung duoc mien la lon hon 5000
 FORMAT ="utf-8"
 
+server_socket= socket.socket(socket.AF_INET,socket.SOCK_STREAM)
 
-s= socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-
-s.bind((HOST,SEVER_PORT))
-s.listen()
+try:
+  s.bind((HOST,SEVER_PORT))
+except socket.error as e:
+  print(str(e))
+  
+s.listen(10)
+thread_count = 0
 
 print("SEVER SIDE")
 print("sever: ",HOST,SEVER_PORT)
 print("Waiting for CLient")
 
-conn, addr =s.accept()
-print("client address: ",addr)
-print("conn: ",conn.getsockname())
+def upload_file(conn, addr):
+  
 
-username = conn.recv(1024).decode(FORMAT)
-# kiểm tra để nhận rồi hay chưa 
-conn.sendall(username.encode(FORMAT))
+def handle_client(conn, addr):
+  
+while True:
+  try:
+    conn, addr =s.accept()
+    print("client address: ",addr)
+    print("conn: ",conn.getsockname())
+    username = conn.recv(1024).decode(FORMAT)
+    # kiểm tra để nhận rồi hay chưa 
+    conn.sendall(username.encode(FORMAT)
+    psw = conn.recv(1024).decode(FORMAT)
+    print("username: ",username)
+    print("password: ", psw)
+  except socket.error as e:
+    print(str(e))
 
-psw = conn.recv(1024).decode(FORMAT)
-
-print("username: ",username)
-print("password: ", psw)
-
-
-input()
