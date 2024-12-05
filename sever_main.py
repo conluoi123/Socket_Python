@@ -5,7 +5,7 @@ import threading
 IP = "127.0.0.1"  # Có thể dễ dàng thay bằng địa chỉ IP mạng của máy tính
 PORT = 4455
 PORT1 = 65432
-SIZE = 4096
+SIZE = 1024
 FORMAT = "utf-8"
 SEVER_FOLDER = "sever_folder"
 
@@ -71,13 +71,13 @@ def nhanFolder():
                     print(f"[SERVER] Đã nhận xong dữ liệu tệp: {file_path}")
 
                 elif cmd == "FINISH":
-                    """Hoàn thành nhận tệp"""
+                    """Hoan thanh ten tep"""
                     print(f"[CLIENT] File transfer completed for: {file_path}")
                     file.close()
                     conn.send("File transfer complete.".encode(FORMAT))
 
                 elif cmd == "CLOSE":
-                    """Đóng kết nối"""
+                    """Dong ket noi"""
                     print("[CLIENT] Connection close request received.")
                     conn.send("Connection closed.".encode(FORMAT))
                     break
@@ -105,15 +105,13 @@ def downloadFile_request(conn, msg):
 
     file_path = os.path.join(SEVER_FOLDER, file_name)
     print(f"[SERVER] Tải file: {file_path}")
-
+    conn.send(f"OK".encode(FORMAT))
     if os.path.exists(file_path):
-        conn.send("OK".encode(FORMAT))  # Gửi phản hồi OK
         file_size = os.path.getsize(file_path)
         conn.send(str(file_size).encode(FORMAT))
-
-        conn.send("OK".encode(FORMAT))  # Server xác nhận OK
         ack = conn.recv(SIZE).decode(FORMAT)
-        if ack != "Sẵn sàng":
+
+        if ack != "READY":
             print("[SERVER] Lỗi: Client không sẵn sàng.")
             return
 
@@ -128,33 +126,82 @@ def downloadFile_request(conn, msg):
         conn.send(error_message.encode(FORMAT))
         print(f"[SERVER] {error_message}")
 
+
+def upFile_request(conn, msg):
+    # Nhận tin nhắn đầu tiên từ client
+    try:
+        # msg = conn.recv(SIZE).decode(FORMAT)
+        # print(msg)
+
+        # if not msg:
+        #     print("[SERVER] Không nhận được tin nhắn từ client.")
+        #     return
+
+        # Xử lý lệnh upload
+        file_name = msg.split(":")[1].strip()
+        file_name = "msg.txt"
+
+        print(f"[SERVER] Đã nhận được tên file: {file_name}")
+
+        # Gửi ACK đầu tiên
+        conn.send("[SERVER] Đã nhận tên file.".encode(FORMAT))
+
+        with open(file_name, "wb") as f:
+            while True:
+                data = conn.recv(SIZE)
+                print(f"data: {data}")
+                if data == b"OK":  # Kiểm tra tín hiệu kết thúc
+                    print("[SERVER] Nhận tín hiệu kết thúc upload.")
+                    break
+                elif data:  # Nếu có dữ liệu, ghi vào file
+                    f.write(data)
+                    conn.send(b"ACK")  # Gửi ACK
+                    print(f"[SERVER] Ghi {len(data)} bytes vào file.")
+
+        print(f"[SERVER] Đã nhận xong file: {file_name}\n")
+        conn.send("[SERVER] Upload thành công.\n".encode(FORMAT))
+    except Exception as e:
+        print(f"[SERVER] Lỗi trong quá trình upload: {e}")
+        conn.send("[SERVER] Lỗi trong quá trình upload.\n".encode(FORMAT))
+
+
 def main():
-    sever = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-    sever.bind((IP,PORT1))
+    sever = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sever.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) #fix  address in use
+    sever.bind((IP, 8008))
     sever.listen()
 
     # Chỗ này chừa cho trường hợp đa luồng
     while True:
-        conn, addr  = sever.accept()
+        conn, addr = sever.accept()
         try:
             print("Đã kết nối với Client.")
             while True:
-                msg = conn.recv(SIZE).decode(FORMAT)
-                print(msg)
+                try:
+                    msg = conn.recv(SIZE).decode(FORMAT)
+                    if not msg:  # Kiểm tra khi không nhận được dữ liệu
+                        print("[SERVER] Không nhận được tin nhắn từ client.")
+                        break
+                    print(f"[SERVER] Nhận được tin nhắn: {msg}")
 
-                if not msg:
+                    if msg.startswith("UP:"):
+                        upFile_request(conn, msg)
+                    elif msg.startswith("DOWNLOAD:"):
+                        downloadFile_request(conn, msg)
+                    else:
+                        print("[SERVER] Tin nhắn không hợp lệ.")
+                except socket.timeout:
+                    print("[SERVER] Đã hết thời gian chờ, không nhận được dữ liệu.")
+                    break
+                except Exception as e:
+                    print(f"[SERVER] Lỗi khi nhận dữ liệu: {e}")
                     break
 
-                downloadFile_request(conn,msg)
-        except  Exception as e:
-            print("Lỗi.!! \n")
+        except Exception as e:
+            print(f"Lỗi kết nối: {e}")
         finally:
             conn.close()
-            print("[SEVER] Connection close!!")
-
-
-
-
+            print("[SERVER] Connection closed.")
 
 
 

@@ -1,6 +1,16 @@
 import socket
 import os
+import logging
+import io
+import time
 import threading
+from logging import basicConfig
+from tqdm import tqdm
+
+# Tao thanh tien trinh
+
+
+
 IP = "127.0.0.1"
 PORT = 4455
 SIZE = 1024
@@ -9,6 +19,17 @@ PORT1 = 65432
 FORMAT = "utf-8"
 CLIENT_FOLDER = "client_folder"
 
+# Mở file log với mã hóa UTF-8
+log_file = io.open("client.log", "a", encoding="utf-8")
+
+# Cấu hình logging
+logging.basicConfig(
+    level=logging.INFO,                # Mức log
+    format="%(asctime)s - %(levelname)s - %(message)s",  # Định dạng log
+    handlers=[                         #Ghi log qua handler
+        logging.FileHandler("client.log", mode="a", encoding="utf-8")  # Đảm bảo mã hóa UTF-8
+    ]
+)
 
 def guiFolder():
     """Starting a tcp socket """
@@ -82,51 +103,105 @@ def guiFolder():
 
 
 def downloadFile(file_name, client):
+    logging.info(f"Bắt đầu quá trình tải file xuôống")
     client.send(f"DOWNLOAD:{file_name}".encode(FORMAT))
-    print("Đã vào tới đây !!!")  # DEBUG
+    logging.debug(f"Đã gửi yêu cầu tới sever".encode(FORMAT))
 
-    # Nhận phản hồi từ server
+    # Nhan phan hoi tu sever
     msg = client.recv(SIZE).decode(FORMAT)
+
     if msg.startswith("ERROR"):
         print(f"[CLIENT] Lỗi từ server: {msg}")
+        logging.error(f"Sever errror")
         return
     elif msg == "OK":
         print("[CLIENT] Server xác nhận: Bắt đầu tải file.")
+        logging.info("Đã nhận được request của sever")
     else:
         print(f"[CLIENT] Phản hồi không xác định: {msg}")
         return
-
-    # Nhận kích thước file
+    # Nhan kich thuoc file 
     try:
         file_size = int(client.recv(SIZE).decode(FORMAT))
         print(f"[CLIENT] Kích thước file: {file_size} bytes")  # DEBUG
-        client.send("Sẵn sàng".encode(FORMAT))
+        logging.info(f"Client đã gửi kích thước file cho sever".encode(FORMAT))
+
+        client.send("READY".encode(FORMAT))
     except ValueError:
         print("[CLIENT] Lỗi: Không thể chuyển đổi kích thước file.")
+        logging.error("Lỗi trong việc chuyển đổi kích thuoớc file từ sever gửi về")
+
+
         return
 
-    # Bắt đầu nhận dữ liệu file
+    # Bat dau nhan du lieu  va hien thi tien trinh tai 
+    progress_bar = tqdm(total=file_size,desc=f"Tai file {file_name}", unit="B",unit_scale=True)
+
     received_data = b""
+    # Khoi tao thanh tien trinh 
     while len(received_data) < file_size:
         chunk = client.recv(SIZE)
         if not chunk:
             break
         received_data += chunk
+        progress_bar.update(len(chunk))
         print(f"[CLIENT] Đã nhận {len(received_data)} / {file_size} bytes")  # DEBUG
+        logging.debug(f"Client đã nhận được {len(received_data)} / {file_size} bytes ")
+
+    progress_bar.close()
+
 
     # Lưu file
     file_path = os.path.join(CLIENT_FOLDER, file_name)
     with open(file_path, "wb") as file:
         file.write(received_data)
     print(f"[CLIENT] File '{file_name}' đã được tải về tại '{file_path}'.")
-def downloadFileThread(file_name,client):
-    threading.Thread(target=downloadFile,args =(file_name,client).start)
+    logging.info(f"File '{file_name}' đã được tải về tại '{file_path}")
 
+
+
+def upFile(client, file_name):
+    logging.info("Bat dau qua trinh tai xuong ")
+
+    if os.path.exists(file_name):
+        # Gửi tên file
+        client.send(f"UP:{file_name}".encode(FORMAT))
+        logging.debug("Da gui yeu cau toi sever")
+
+        # Chờ ACK từ server
+        ack = client.recv(SIZE).decode(FORMAT)
+        logging.debug("Da nhan duoc request cua Sever")
+        if ack != "[SERVER] Đã nhận tên file.":
+            print("Lỗi: Không nhận được ACK từ server.")
+            logging.error("Lỗi không nhận được request từ sever")
+
+            return
+        with open(file_name, "rb") as f:
+            while chunk := f.read(SIZE):
+                client.sendall(chunk)
+                # Chờ ACK từ server sau mỗi lần gửi dữ liệu
+                ack = client.recv(SIZE).decode(FORMAT)
+                logging.info("Gửi ACK sau mỗi lần gửi dữ liệu")
+                if ack != "ACK":
+                    print("Lỗi: Không nhận được ACK từ server.")
+                    return
+
+        # Gửi tín hiệu kết thúc
+        client.send(b"OK")
+        logging.debug("Nhận được tín hiệu kết thúc của sever")
+
+        # Nhận phản hồi từ server
+        msg = client.recv(SIZE).decode(FORMAT)
+        print(f"{msg}")
+        logging.info(f"Thông báo đã up load xong file {file_name}")
+
+    else:
+        print("File không tồn tại.")
 
 def main():
     # Khởi chạy client
     client= socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-    client.connect((IP,PORT1))
+    client.connect((IP,8008))
     print(f"[CLIENT] Đã kết nối với sever thành công !!")
 
 
@@ -135,17 +210,27 @@ def main():
         while True:
             print("\n-----MENU-----\n")
             print("1. Tải file từ sever ")
-            print("2. Thoát")
+            print("2. UpFile từ client lên Sever")
+            print("3. Thoát")
+
             choice = input("Nhập lựa chọn: " )
 
 
             if choice =="1":
                 file_name = input("Nhâpj tên file cần tải về: ")
                 downloadFile(file_name,client)
-            elif choice =="2":
+            elif choice =="3":
                 print(f"[CLIENT] Đóng kết nối !!")
                 client.send("CLOSE".encode(FORMAT))
                 break
+            elif choice =="2":
+                file_name = input("Nhập tên file cần upload: ")
+                if file_name:
+                    upFile(client,file_name)
+                else:
+                    print(f"[CLIENT] Tên file không được để trống")
+
+
 
             else:
                 print("Lựa chọn không hợp lệ vui lòng nhập lại \n")
@@ -160,17 +245,3 @@ if __name__ == "__main__":
     main()
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-if __name__ == "__main__":
-    main
